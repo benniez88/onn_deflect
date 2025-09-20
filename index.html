@@ -1,87 +1,90 @@
-<form id="frm">
-  <label>Date of receive:</label>
-  <input type="date" name="dateReceived" required><br><br>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Defect Intake</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    label { display: block; margin-top: 12px; }
+    button { margin-top: 16px; padding: 10px 18px; }
+    #msg { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h2>Defect Intake Form</h2>
+  <form id="frm">
+    <label>Date of receive:</label>
+    <input type="date" name="dateReceived" required>
 
-  <label>Picture of Defect (max 8):</label>
-  <input type="file" id="defectPics" name="defectPics" accept="image/*" capture="environment" multiple><br><br>
+    <label>Picture of Defect (up to 8):</label>
+    <input type="file" id="defectPics" accept="image/*" capture="environment" multiple>
 
-  <label>Picture of Size Label:</label>
-  <input type="file" id="sizeLabel" name="sizeLabel" accept="image/*" capture="environment" required><br><br>
+    <label>Picture of Size Label:</label>
+    <input type="file" id="sizeLabel" accept="image/*" capture="environment" required>
 
-  <label>Picture of Sole:</label>
-  <input type="file" id="solePic" name="solePic" accept="image/*" capture="environment"><br><br>
+    <label>Picture of Sole:</label>
+    <input type="file" id="solePic" accept="image/*" capture="environment">
 
-  <label>Quantity (Qty):</label>
-  <input type="number" name="qty" value="1" min="1" required><br><br>
+    <label>Quantity (Qty):</label>
+    <input type="number" name="qty" value="1" min="1" required>
 
-  <button type="submit" id="btnSave">Save</button>
-  <div id="msg" style="margin-top:8px;color:#333"></div>
-</form>
+    <button type="submit" id="btnSave">Save</button>
+    <div id="msg"></div>
+  </form>
 
-<script>
-const WEBAPP_URL = '<< วาง Web App URL ของ Apps Script ที่ Deploy แล้ว >>';
+  <script>
+  const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzb83hmO3za6LjS2y-XLvfvPqr5t29JbCdDL9bky7nrBhqJ3Uu0ghOscQ2i098yaHwf/exec";
 
-const toBase64 = file => new Promise((resolve, reject) => {
-  // ลดขนาดรูปก่อนอัป (ช่วยให้ส่งเร็วและไม่เกินโควต้า)
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 1600; // ย่อด้านยาวสุดเหลือ 1600px
-      let {width, height} = img;
-      if (width > height && width > MAX) { height = height * (MAX/width); width = MAX; }
-      else if (height > MAX) { width = width * (MAX/height); height = MAX; }
+  const toBase64 = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      resolve(dataUrl);
-    };
-    img.onerror = reject;
-    img.src = reader.result;
-  };
-  reader.onerror = reject;
-  reader.readAsDataURL(file);
-});
+  document.getElementById('frm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btnSave');
+    const msg = document.getElementById('msg');
+    btn.disabled = true;
+    msg.style.color = "#333";
+    msg.textContent = "Saving...";
 
-document.getElementById('frm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = document.getElementById('btnSave');
-  const msg = document.getElementById('msg');
-  btn.disabled = true; msg.textContent = 'Saving...';
+    try {
+      const fd = new FormData(e.target);
 
-  try {
-    const fd = new FormData(e.target);
-    // แนบรูปเป็น base64 ลง FormData (หลีกเลี่ยง JSON/CORS)
-    const defectFiles = document.getElementById('defectPics').files;
-    for (let i = 0; i < defectFiles.length && i < 8; i++) {
-      fd.append('defectPic' + i, await toBase64(defectFiles[i]));
+      // defect pics
+      const defectFiles = document.getElementById('defectPics').files;
+      for (let i = 0; i < defectFiles.length && i < 8; i++) {
+        fd.append("defectPic" + i, await toBase64(defectFiles[i]));
+      }
+
+      // size label
+      const sizeFile = document.getElementById('sizeLabel').files[0];
+      if (sizeFile) fd.append("sizeLabel", await toBase64(sizeFile));
+
+      // sole
+      const soleFile = document.getElementById('solePic').files[0];
+      if (soleFile) fd.append("solePic", await toBase64(soleFile));
+
+      const res = await fetch(WEBAPP_URL, { method: "POST", body: fd });
+      const text = await res.text();
+
+      if (res.ok && /Saved/i.test(text)) {
+        msg.style.color = "green";
+        msg.textContent = "✅ Saved successfully";
+        e.target.reset();
+      } else {
+        msg.style.color = "crimson";
+        msg.textContent = "❌ Save failed: " + text;
+      }
+    } catch (err) {
+      msg.style.color = "crimson";
+      msg.textContent = "❌ Error: " + err.message;
+    } finally {
+      btn.disabled = false;
     }
-    const sizeFile = document.getElementById('sizeLabel').files[0];
-    if (sizeFile) fd.append('sizeLabel', await toBase64(sizeFile));
-    const soleFile = document.getElementById('solePic').files[0];
-    if (soleFile) fd.append('solePic', await toBase64(soleFile));
-
-    // *** ไม่ตั้ง headers Content-Type เพื่อไม่ให้ browser ทำ preflight ***
-    const res = await fetch(WEBAPP_URL, { method: 'POST', body: fd });
-    // บางครั้ง webapp ไม่มี CORS header → อย่าใช้ .json() ให้ใช้ text()
-    const text = await res.text();
-
-    if (res.ok && /Saved/i.test(text)) {
-      msg.style.color = 'green';
-      msg.textContent = 'Saved successfully';
-      e.target.reset(); // เคลียร์เฉพาะเมื่อสำเร็จ
-    } else {
-      msg.style.color = 'crimson';
-      msg.textContent = 'Save failed: ' + text;
-    }
-  } catch (err) {
-    msg.style.color = 'crimson';
-    msg.textContent = 'Save error: ' + err.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
-</script>
+  });
+  </script>
+</body>
+</html>
