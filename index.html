@@ -1,90 +1,87 @@
-const SHEET_ID = '1D9z47a_uYtvFwA_uKlwd85-l5dnRhSOShP6CC2kMfWA'; 
-const DRIVE_FOLDER_ID = '1fkl0PoPHSroRRZSON5YBnup15KaXvJaa';
+<form id="frm">
+  <label>Date of receive:</label>
+  <input type="date" name="dateReceived" required><br><br>
 
-function doGet(e) {
-  return ContentService.createTextOutput("🚀 Web App is running. Send POST request to save data.");
-}
+  <label>Picture of Defect (max 8):</label>
+  <input type="file" id="defectPics" name="defectPics" accept="image/*" capture="environment" multiple><br><br>
 
-function doPost(e) {
-  try {
-    const body = JSON.parse(e.postData.contents);
+  <label>Picture of Size Label:</label>
+  <input type="file" id="sizeLabel" name="sizeLabel" accept="image/*" capture="environment" required><br><br>
 
-    // ใช้วันที่เป็นชื่อชีต เช่น 20/09/2025
-    const sheetName = body.dateReceived;
-    const ss = SpreadsheetApp.openById(SHEET_ID);
-    let sh = ss.getSheetByName(sheetName);
-    if (!sh) {
-      sh = ss.insertSheet(sheetName);
-      sh.appendRow([
-        'Date of recive',
-        'Picture of defect',
-        'Picture of size Lable',
-        'Picture of sole',
-        'Model Number',
-        'Gender',
-        'Size',
-        'Model Name',
-        'Production code',
-        'Factory code',
-        'Quantity'
-      ]);
-    }
+  <label>Picture of Sole:</label>
+  <input type="file" id="solePic" name="solePic" accept="image/*" capture="environment"><br><br>
 
-    // อัปโหลด defect pics (สูงสุด 8)
-    const defectUrls = (body.defectPics || []).map((b64, i) =>
-      saveImg(b64, `defect_${Date.now()}_${i}.jpg`)
-    );
+  <label>Quantity (Qty):</label>
+  <input type="number" name="qty" value="1" min="1" required><br><br>
 
-    // อัปโหลด size label (1)
-    const sizeUrl = saveImg(body.sizeLabel, `sizelabel_${Date.now()}.jpg`);
+  <button type="submit" id="btnSave">Save</button>
+  <div id="msg" style="margin-top:8px;color:#333"></div>
+</form>
 
-    // อัปโหลด sole (1)
-    const soleUrl = saveImg(body.solePic, `sole_${Date.now()}.jpg`);
+<script>
+const WEBAPP_URL = '<< วาง Web App URL ของ Apps Script ที่ Deploy แล้ว >>';
 
-    // OCR → ตอนนี้ยังเป็น placeholder
-    const ocrText = '';
-    const parsed = parseSizeLabel(ocrText);
+const toBase64 = file => new Promise((resolve, reject) => {
+  // ลดขนาดรูปก่อนอัป (ช่วยให้ส่งเร็วและไม่เกินโควต้า)
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 1600; // ย่อด้านยาวสุดเหลือ 1600px
+      let {width, height} = img;
+      if (width > height && width > MAX) { height = height * (MAX/width); width = MAX; }
+      else if (height > MAX) { width = width * (MAX/height); height = MAX; }
 
-    // บันทึกลงชีต
-    sh.appendRow([
-      body.dateReceived,
-      defectUrls.join(', '),
-      sizeUrl,
-      soleUrl,
-      parsed.modelNumber || '',
-      parsed.gender || '',
-      parsed.size || '',
-      parsed.modelName || '',
-      parsed.productionCode || '',
-      parsed.factoryCode || '',
-      Number(body.qty || 1)
-    ]);
-
-    return ContentService.createTextOutput('✅ Saved to Google Sheet');
-  } catch (err) {
-    return ContentService.createTextOutput('❌ Error: ' + err.message);
-  }
-}
-
-function saveImg(dataUrl, filename) {
-  if (!dataUrl) return '';
-  const m = dataUrl.match(/^data:(.+);base64,(.*)$/);
-  if (!m) return '';
-  const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], filename);
-  const file = DriveApp.getFolderById(DRIVE_FOLDER_ID).createFile(blob);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return file.getUrl();
-}
-
-// ยังเป็น placeholder รอ OCR จริง
-function parseSizeLabel(text) {
-  return {
-    modelNumber: '',
-    gender: '',
-    size: '',
-    modelName: '',
-    productionCode: '',
-    factoryCode: ''
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      resolve(dataUrl);
+    };
+    img.onerror = reject;
+    img.src = reader.result;
   };
-}
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
 
+document.getElementById('frm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btnSave');
+  const msg = document.getElementById('msg');
+  btn.disabled = true; msg.textContent = 'Saving...';
+
+  try {
+    const fd = new FormData(e.target);
+    // แนบรูปเป็น base64 ลง FormData (หลีกเลี่ยง JSON/CORS)
+    const defectFiles = document.getElementById('defectPics').files;
+    for (let i = 0; i < defectFiles.length && i < 8; i++) {
+      fd.append('defectPic' + i, await toBase64(defectFiles[i]));
+    }
+    const sizeFile = document.getElementById('sizeLabel').files[0];
+    if (sizeFile) fd.append('sizeLabel', await toBase64(sizeFile));
+    const soleFile = document.getElementById('solePic').files[0];
+    if (soleFile) fd.append('solePic', await toBase64(soleFile));
+
+    // *** ไม่ตั้ง headers Content-Type เพื่อไม่ให้ browser ทำ preflight ***
+    const res = await fetch(WEBAPP_URL, { method: 'POST', body: fd });
+    // บางครั้ง webapp ไม่มี CORS header → อย่าใช้ .json() ให้ใช้ text()
+    const text = await res.text();
+
+    if (res.ok && /Saved/i.test(text)) {
+      msg.style.color = 'green';
+      msg.textContent = 'Saved successfully';
+      e.target.reset(); // เคลียร์เฉพาะเมื่อสำเร็จ
+    } else {
+      msg.style.color = 'crimson';
+      msg.textContent = 'Save failed: ' + text;
+    }
+  } catch (err) {
+    msg.style.color = 'crimson';
+    msg.textContent = 'Save error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
