@@ -1,66 +1,90 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Defect Intake</title>
-</head>
-<body>
-  <h2>Defect Intake Form</h2>
-  <form id="frm">
-    <label>Date of receive:</label>
-    <input type="date" name="dateReceived" required><br><br>
+const SHEET_ID = '1D9z47a_uYtvFwA_uKlwd85-l5dnRhSOShP6CC2kMfWA'; 
+const DRIVE_FOLDER_ID = '1fkl0PoPHSroRRZSON5YBnup15KaXvJaa';
 
-    <label>Picture of Defect (max 8):</label>
-    <input type="file" id="defectPics" name="defectPics" accept="image/*" capture="camera" multiple><br><br>
+function doGet(e) {
+  return ContentService.createTextOutput("🚀 Web App is running. Send POST request to save data.");
+}
 
-    <label>Picture of Size Label:</label>
-    <input type="file" id="sizeLabel" name="sizeLabel" accept="image/*" capture="camera" required><br><br>
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
 
-    <label>Quantity (Qty):</label>
-    <input type="number" name="qty" value="1" required><br><br>
+    // ใช้วันที่เป็นชื่อชีต เช่น 20/09/2025
+    const sheetName = body.dateReceived;
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    let sh = ss.getSheetByName(sheetName);
+    if (!sh) {
+      sh = ss.insertSheet(sheetName);
+      sh.appendRow([
+        'Date of recive',
+        'Picture of defect',
+        'Picture of size Lable',
+        'Picture of sole',
+        'Model Number',
+        'Gender',
+        'Size',
+        'Model Name',
+        'Production code',
+        'Factory code',
+        'Quantity'
+      ]);
+    }
 
-    <button type="submit">Save</button>
-  </form>
+    // อัปโหลด defect pics (สูงสุด 8)
+    const defectUrls = (body.defectPics || []).map((b64, i) =>
+      saveImg(b64, `defect_${Date.now()}_${i}.jpg`)
+    );
 
-  <script>
-    const frm = document.getElementById('frm');
+    // อัปโหลด size label (1)
+    const sizeUrl = saveImg(body.sizeLabel, `sizelabel_${Date.now()}.jpg`);
 
-    const toDataURL = file => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+    // อัปโหลด sole (1)
+    const soleUrl = saveImg(body.solePic, `sole_${Date.now()}.jpg`);
 
-    frm.addEventListener('submit', async (e) => {
-      e.preventDefault();
+    // OCR → ตอนนี้ยังเป็น placeholder
+    const ocrText = '';
+    const parsed = parseSizeLabel(ocrText);
 
-      const formData = new FormData(frm);
-      const data = {
-        dateReceived: formData.get('dateReceived'),
-        qty: formData.get('qty')
-      };
+    // บันทึกลงชีต
+    sh.appendRow([
+      body.dateReceived,
+      defectUrls.join(', '),
+      sizeUrl,
+      soleUrl,
+      parsed.modelNumber || '',
+      parsed.gender || '',
+      parsed.size || '',
+      parsed.modelName || '',
+      parsed.productionCode || '',
+      parsed.factoryCode || '',
+      Number(body.qty || 1)
+    ]);
 
-      // defect pics (up to 8)
-      const defectFiles = document.getElementById('defectPics').files;
-      data.defectPics = [];
-      for (let i = 0; i < defectFiles.length && i < 8; i++) {
-        data.defectPics.push(await toDataURL(defectFiles[i]));
-      }
+    return ContentService.createTextOutput('✅ Saved to Google Sheet');
+  } catch (err) {
+    return ContentService.createTextOutput('❌ Error: ' + err.message);
+  }
+}
 
-      // size label (1 pic)
-      const sizeFile = document.getElementById('sizeLabel').files[0];
-      data.sizeLabel = sizeFile ? await toDataURL(sizeFile) : '';
+function saveImg(dataUrl, filename) {
+  if (!dataUrl) return '';
+  const m = dataUrl.match(/^data:(.+);base64,(.*)$/);
+  if (!m) return '';
+  const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], filename);
+  const file = DriveApp.getFolderById(DRIVE_FOLDER_ID).createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file.getUrl();
+}
 
-      const res = await fetch('YOUR_WEB_APP_URL', {
-        method: 'POST',
-        body: JSON.stringify(data),
-        headers: { 'Content-Type': 'application/json' }
-      });
+// ยังเป็น placeholder รอ OCR จริง
+function parseSizeLabel(text) {
+  return {
+    modelNumber: '',
+    gender: '',
+    size: '',
+    modelName: '',
+    productionCode: '',
+    factoryCode: ''
+  };
+}
 
-      alert(await res.text());
-      frm.reset();
-    });
-  </script>
-</body>
-</html>
